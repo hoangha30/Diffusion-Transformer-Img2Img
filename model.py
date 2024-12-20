@@ -120,8 +120,6 @@ class DiT(nn.Module):
         hidden_size=512,
         depth=16,
         learn_sigma=True,
-        dt_rank=16,
-        d_state=16,
     ):
         super().__init__()
         self.learn_sigma = learn_sigma
