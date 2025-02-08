@@ -11,7 +11,7 @@ from typing import Optional
 from einops import rearrange, repeat
 from einops.layers.torch import Rearrange
 from torch import nn, Tensor
-from block.DiT_block import modulate, DiTBlock
+from block.DiT_block import modulate, DiTBlock, DiTBlock_nonclip
 # from block.unet2 import UNet as U_Net
 
 #################################################################################
@@ -85,7 +85,7 @@ class TimestepEmbed(nn.Module):
 
 
 #################################################################################
-#                                 Core DiffMa Model                                #
+#                                 Core Diffusion Model                                #
 #################################################################################
 class FinalLayer(nn.Module):
     """
@@ -106,6 +106,24 @@ class FinalLayer(nn.Module):
         x = self.linear(x)
         return x
 
+class FinalLayer_nonclip(nn.Module):
+    """
+    The final layer of DiM.
+    """
+    def __init__(self, hidden_size, patch_size, out_channels):
+        super().__init__()
+        self.norm_final = nn.LayerNorm(hidden_size, elementwise_affine=False, eps=1e-6)
+        self.linear = nn.Linear(hidden_size, patch_size * patch_size * out_channels, bias=True)
+        self.adaLN_modulation = nn.Sequential(
+            nn.SiLU(),
+            nn.Linear(hidden_size, 2 * hidden_size, bias=True)
+        )
+
+    def forward(self, x, c):
+        shift, scale = self.adaLN_modulation(c).chunk(2, dim=1)
+        x = modulate(self.norm_final(x), shift, scale)
+        x = self.linear(x)
+        return x
 
 class DiT(nn.Module):
     """
@@ -140,7 +158,15 @@ class DiT(nn.Module):
                 ) 
             for i in range(depth) 
         ])
+        self.blocks_nonclip = nn.ModuleList([
+            DiTBlock_nonclip(
+                hidden_size=hidden_size, 
+                num_heads=8,
+                ) 
+            for i in range(depth)
+        ])
         self.final_layer = FinalLayer(hidden_size, patch_size, self.out_channels)
+        self.final_layer_nonclip = FinalLayer_nonclip(hidden_size, patch_size, self.out_channels)
         self.initialize_weights()
 
     def initialize_weights(self):
@@ -190,7 +216,7 @@ class DiT(nn.Module):
         imgs = x.reshape(shape=(x.shape[0], c, h * p, h * p))
         return imgs
 
-    def forward(self, x, t, y, y2, w):
+    def forward(self, x, t, y2, w, y=None):
         """
         Forward pass of DiM.
         x: (N, C, H, W) tensor of spatial inputs (images or latent representations of images)
@@ -205,26 +231,43 @@ class DiT(nn.Module):
         y2 = torch.mean(y2, dim=1)               # (N, D)
         # w                                      # (N, T, 1)
 
-        c1 = t + y 
-        c2 = t + y2
-        c = torch.cat((c1, c2), dim=1)           # (N, 2*D)
+        if y is None:
+            c = t + y2
+            block_outputs = []
+            for i in range(self.depth):
+                if i == 0:  
+                    x = self.blocks_nonclip[i](x, c, w)
+                elif i > self.depth/2: 
+                    skip_connection = block_outputs[self.depth-i-1]
+                    x = self.blocks_nonclip[i](block_outputs[-1] + skip_connection, c, w)
+                else: 
+                    x = self.blocks_nonclip[i](block_outputs[-1], c, w)
+                block_outputs.append(x)
+                x = self.final_layer_nonclip(x, c)
+
+        else:
+            c1 = t + y
+            c2 = t + y2
+            c = torch.cat((c1, c2), dim=1)           # (N, 2*D)
+            block_outputs = []
+            for i in range(self.depth):
+                if i == 0:  
+                    x = self.blocks[i](x, c, w)
+                elif i > self.depth/2: 
+                    skip_connection = block_outputs[self.depth-i-1]
+                    x = self.blocks[i](block_outputs[-1] + skip_connection, c, w)
+                else: 
+                    x = self.blocks[i](block_outputs[-1], c, w)
+                block_outputs.append(x)
+                x = self.final_layer(x, c) 
 
         # for block in self.blocks:
         #     x = block(x, c, w)                   # (N, T, D)
 
-        block_outputs = []
-        for i in range(self.depth):
-            if i == 0:  
-                x = self.blocks[i](x, c, w)
-            elif i > self.depth/2: 
-                skip_connection = block_outputs[self.depth-i-1]
-                x = self.blocks[i](block_outputs[-1] + skip_connection, c, w)
-            else: 
-                x = self.blocks[i](block_outputs[-1], c, w)
-            block_outputs.append(x)
+
 
         
-        x = self.final_layer(x, c)               # (N, T, patch_size ** 2 * out_channels)
+              # (N, T, patch_size ** 2 * out_channels)
         x = self.unpatchify(x)                   # (N, out_channels, H, W)
 
         return x

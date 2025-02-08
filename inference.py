@@ -83,13 +83,11 @@ def main(seed, model, latent_size, ckpt, vae, image_size, ct_ckpt, input_val_fol
         drop_last=False,
         )
     print((f"Dataset contains {len(val_dataset)}."))
-    item = 0
-    for x_ct, z_mri in val_loader:
-        item+=1
+    for item, (x_ct, z_mri) in enumerate(val_loader):
         # if item<15:
         #     continue
         n = x_ct.shape[0]
-        z = torch.randn(n, 4, latent_size, latent_size, device=device)  #Random noise
+        z = torch.randn(n, 4, latent_size, latent_size, device=device)  # Random noise
 
         x_ct = x_ct.to(device)
         x_ct = torch.cat([x_ct] * 3, dim=1)
@@ -114,9 +112,10 @@ def main(seed, model, latent_size, ckpt, vae, image_size, ct_ckpt, input_val_fol
         samples = vae.decode(samples / 0.18215).sample
         
         os.makedirs('./' + save_dir, exist_ok=True)
-        save_image(samples, save_dir + '/' + str(item) + '_sample_gen.png', nrow=4, normalize=True, value_range=(-1, 1))
-        save_image(z_mri, save_dir + '/' + str(item) + '_sample_mri.png', nrow=4, normalize=True, value_range=(-1, 1))
-        save_image(x_ct_, save_dir + '/' + str(item) + '_sample_ct.png', nrow=4, normalize=True, value_range=(-1, 1))
+        filename = val_dataset.images[item]
+        save_image(samples, os.path.join(save_dir, f'{filename}_sample_gen.png'), nrow=4, normalize=True, value_range=(-1, 1))
+        save_image(z_mri, os.path.join(save_dir, f'{filename}_sample_mri.png'), nrow=4, normalize=True, value_range=(-1, 1))
+        save_image(x_ct_, os.path.join(save_dir, f'{filename}_sample_ct.png'), nrow=4, normalize=True, value_range=(-1, 1))
 
 
 if __name__ == "__main__":
