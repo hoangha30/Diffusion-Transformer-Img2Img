@@ -5,3 +5,7 @@ In this project, Diffusion Transformer (https://arxiv.org/pdf/2212.09748) is imp
 
 <img src="result_samples/1_sample_gen.png" alt="Alt text" width="600" height="300">
 <sup> Generated MRI images by Diffusion Transformer DiT-L-2 </sup>
+
+## Result
+Read the implementation of our approach here:
+[Diffusion Transformer in Pairwised MRI-CT translation](assets/Image_translation.pdf)
