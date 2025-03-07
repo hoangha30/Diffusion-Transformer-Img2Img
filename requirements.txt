@@ -1,0 +1,17 @@
+open_clip_torch 
+loguru 
+wandb 
+diffusers 
+einops 
+omegaconf 
+torchmetrics 
+decord 
+accelerate 
+pytest 
+fvcore 
+chardet 
+yacs 
+termcolor 
+submitit 
+tensorboardX 
+seaborn
